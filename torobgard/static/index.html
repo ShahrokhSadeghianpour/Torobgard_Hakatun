@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تُرُب‌گرد | دستیار هوشمند و رادار خرید حضوری تهران</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vazirmatn Persian Font -->
+    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet" type="text/css" />
+    <!-- Leaflet Map CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body {
+            font-family: 'Vazirmatn', sans-serif;
+            background-color: #f8fafc;
+        }
+        .torob-red { background-color: #d73948; }
+        .torob-text { color: #d73948; }
+        .torob-border { border-color: #d73948; }
+        #map { height: 100%; min-height: 320px; width: 100%; border-radius: 1rem; z-index: 10; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased">
+
+    <!-- Top Header -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl torob-red flex items-center justify-center text-white font-black text-xl shadow-md">
+                    ت
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-black text-lg text-slate-900">تُرُب‌گرد <span class="text-xs font-normal bg-red-50 text-red-600 px-2 py-0.5 rounded-full border border-red-200">دستیار هوشمند خرید حضوری تهران</span></h1>
+                    </div>
+                    <p class="text-xs text-slate-500" id="dataset-stats">در حال اتصال به دیتاست ترب...</p>
+                </div>
+            </div>
+
+            <!-- Step Indicator -->
+            <div class="hidden md:flex items-center gap-2 text-xs font-medium bg-slate-100 p-1.5 rounded-xl">
+                <span id="step-badge-1" class="px-3 py-1 rounded-lg bg-white text-red-600 shadow-sm font-bold">۱. تشخیص نیاز و محصول</span>
+                <span>←</span>
+                <span id="step-badge-2" class="px-3 py-1 rounded-lg text-slate-500">۲. رادار پاساژ و مقایسه</span>
+                <span>←</span>
+                <span id="step-badge-3" class="px-3 py-1 rounded-lg text-slate-500">۳. استعلام زنده از مغازه</span>
+                <span>←</span>
+                <span id="step-badge-4" class="px-3 py-1 rounded-lg text-slate-500">۴. کارت مراجعه حضوری</span>
+            </div>
+
+            <button onclick="resetDemo()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg font-medium transition">
+                🔄 ریست وضعیت دمو
+            </button>
+        </div>
+    </header>
+
+    <!-- Zero-Typing Interactive Filter Bar -->
+    <section class="bg-white border-b border-slate-200 shadow-xs">
+        <div class="max-w-7xl mx-auto px-4 py-3">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                
+                <!-- Search / Voice Input -->
+                <div class="md:col-span-5 relative flex items-center">
+                    <input id="search-input" type="text" placeholder="چی می‌خوای بخری؟ (مثلاً: لنز دوربین سونی، کابل افشان، آژیر...)" 
+                        class="w-full pl-20 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-red-500 focus:bg-white transition"
+                        onkeydown="if(event.key==='Enter') loadProducts()">
+                    <button onclick="startVoiceSearch()" title="جستجوی صوتی" class="absolute left-14 text-slate-400 hover:text-red-500 p-1">
+                        🎙️
+                    </button>
+                    <button onclick="loadProducts()" class="absolute left-1.5 torob-red hover:bg-red-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition">
+                        بگرد
+                    </button>
+                </div>
+
+                <!-- Location Selector -->
+                <div class="md:col-span-3 flex items-center gap-1.5">
+                    <span class="text-xs text-slate-500 whitespace-nowrap">📍 محدوده:</span>
+                    <select id="location-select" onchange="onFilterChange()" class="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-2 text-xs font-medium focus:outline-none focus:border-red-500">
+                        <option value="همه محله‌های تهران" data-lat="35.6951" data-lon="51.4085">همه محله‌های تهران (مرکز: جمهوری)</option>
+                    </select>
+                </div>
+
+                <!-- Budget Slider -->
+                <div class="md:col-span-2 flex flex-col">
+                    <div class="flex justify-between text-[11px] text-slate-600 mb-0.5">
+                        <span>💰 سقف بودجه:</span>
+                        <span id="budget-label" class="font-bold text-slate-800">بدون محدودیت</span>
+                    </div>
+                    <input id="budget-slider" type="range" min="500000" max="200000000" step="500000" value="200000000" 
+                        oninput="updateBudgetLabel(this.value)" onchange="onFilterChange()" class=" accent-red-600 cursor-pointer">
+                </div>
+
+                <!-- Installment / TorobPay Toggle -->
+                <div class="md:col-span-2 flex items-center justify-end">
+                    <label class="flex items-center gap-2 cursor-pointer bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl w-full justify-center hover:bg-amber-100 transition">
+                        <input id="installment-checkbox" type="checkbox" onchange="onFilterChange()" class="accent-red-600 w-4 h-4">
+                        <span class="text-xs font-bold text-amber-900">💳 فقط خرید قسطی / ترب‌پی</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Quick Prompt Chips (Zero-Typing UX) -->
+            <div class="flex items-center gap-2 mt-2.5 overflow-x-auto pb-1 text-xs">
+                <span class="text-slate-400 whitespace-nowrap">پیشنهادهای سریع دیتاست:</span>
+                <button onclick="quickSearch('لنز دوربین سونی')" class="px-2.5 py-1 bg-slate-100 hover:bg-red-50 hover:text-red-600 rounded-full whitespace-nowrap transition">📷 لنز دوربین سونی</button>
+                <button onclick="quickSearch('کابل افشان')" class="px-2.5 py-1 bg-slate-100 hover:bg-red-50 hover:text-red-600 rounded-full whitespace-nowrap transition">⚡ کابل افشان مشهد</button>
+                <button onclick="quickSearch('آژیر')" class="px-2.5 py-1 bg-slate-100 hover:bg-red-50 hover:text-red-600 rounded-full whitespace-nowrap transition">🚨 آژیر و سیستم امنیتی</button>
+                <button onclick="quickSearch('صاعقه گیر')" class="px-2.5 py-1 bg-slate-100 hover:bg-red-50 hover:text-red-600 rounded-full whitespace-nowrap transition">🌩️ صاعقه‌گیر و تجهیزات</button>
+                <button onclick="quickSearch('')" class="px-2.5 py-1 bg-slate-100 hover:bg-red-50 hover:text-red-600 rounded-full whitespace-nowrap transition">🔥 همه کالاهای پرتقاضا</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content Layout -->
+    <main class="max-w-7xl mx-auto px-4 py-5 grid grid-cols-1 lg:grid-cols-12 gap-5">
+        
+        <!-- Right Column: Discovery & Comparison Cards (7 Cols) -->
+        <div class="lg:col-span-7 space-y-4">
+            
+            <!-- AI Co-pilot Message Box -->
+            <div class="bg-gradient-to-l from-red-50 via-white to-white border border-red-200 rounded-2xl p-4 shadow-xs flex items-start gap-3">
+                <div class="w-9 h-9 rounded-xl torob-red text-white flex items-center justify-center text-lg shrink-0 shadow-xs">🤖</div>
+                <div class="flex-1">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-extrabold text-red-700">مشاور هوشمند خرید حضوری (Agentic Co-Pilot)</span>
+                        <span class="text-[11px] text-slate-400">شفافیت کامل قیمت و موجودی</span>
+                    </div>
+                    <p id="agent-message" class="text-xs md:text-sm text-slate-700 mt-1 leading-relaxed">
+                        سلام! من دستیار خرید حضوری شما هستم. محصول مورد نظرتان را جستجو کنید یا از دکمه‌های بالا انتخاب کنید تا بهترین مدل‌ها و نزدیک‌ترین مغازه‌های پاساژهای تهران را برایتان مقایسه و استعلام کنم.
+                    </p>
+                </div>
+            </div>
+
+            <!-- View 1: Product Discovery Grid -->
+            <div id="products-view" class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <h2 class="font-bold text-slate-800 text-sm md:text-base">📦 گام ۱: پیشنهاد و مقایسه هوشمند محصولات</h2>
+                    <span id="product-count-badge" class="text-xs bg-slate-200 text-slate-700 px-2.5 py-0.5 rounded-full font-bold">0 محصول</span>
+                </div>
+                <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <!-- Dynamic Product Cards -->
+                </div>
+            </div>
+
+            <!-- View 2: Shops Comparison & Mall X-Ray (Hidden initially) -->
+            <div id="shops-view" class="hidden space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-2xl border border-slate-200">
+                    <button onclick="backToProducts()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2 rounded-xl flex items-center gap-1 transition">
+                        → بازگشت به لیست محصولات
+                    </button>
+
+                    <!-- Visit Time & Sort Controls -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <select id="visit-day" onchange="reloadCurrentProductShops()" class="bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5 text-xs">
+                            <option value="sat">مراجعه: شنبه</option>
+                            <option value="sun">مراجعه: یکشنبه</option>
+                            <option value="mon" selected>مراجعه: دوشنبه</option>
+                            <option value="tue">مراجعه: سه‌شنبه</option>
+                            <option value="wed">مراجعه: چهارشنبه</option>
+                            <option value="thu">مراجعه: پنج‌شنبه</option>
+                            <option value="fri">مراجعه: جمعه</option>
+                        </select>
+                        <select id="visit-hour" onchange="reloadCurrentProductShops()" class="bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5 text-xs">
+                            <option value="11">ساعت ۱۱ صبح</option>
+                            <option value="14" selected>ساعت ۱۴ ظهر</option>
+                            <option value="18">ساعت ۱۸ عصر</option>
+                            <option value="20">ساعت ۲۰ شب</option>
+                        </select>
+                        <select id="sort-shops" onchange="reloadCurrentProductShops()" class="bg-red-50 border border-red-200 text-red-700 font-bold rounded-lg px-2.5 py-1.5 text-xs">
+                            <option value="smart">مرتب‌سازی: پیشنهاد هوشمند ایجنت</option>
+                            <option value="price">مرتب‌سازی: ارزان‌ترین قیمت</option>
+                            <option value="distance">مرتب‌سازی: نزدیک‌ترین فاصله</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Selected Product Header Card -->
+                <div id="selected-product-header" class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs"></div>
+
+                <!-- Batch Live Inquiry Banner -->
+                <div class="bg-slate-900 text-white p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-md">
+                    <div>
+                        <h3 class="text-sm font-bold flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                            گام ۴: استعلام زنده موجودی و قیمت قبل از حرکت
+                        </h3>
+                        <p class="text-xs text-slate-300 mt-0.5">
+                            چون قیمت‌های ثبت‌شده مربوط به روزهای قبل است، ایجنت می‌تواند همین الان با فروشنده‌ها ارتباط بگیرد.
+                        </p>
+                    </div>
+                    <button onclick="inquireAllTopShops()" class="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs px-4 py-2.5 rounded-xl transition shadow-sm">
+                        ⚡ استعلام همزمان از فروشگاه‌ها
+                    </button>
+                </div>
+
+                <!-- Direct Shops List -->
+                <div id="shops-list" class="space-y-3"></div>
+
+                <!-- Category Alternative Shops (Transparency requirement) -->
+                <div id="category-alternatives-box" class="hidden bg-slate-100 border border-slate-300 rounded-2xl p-4 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <h4 class="text-xs font-extrabold text-slate-700">🔍 فروشگاه‌های هم‌صنف در همین محدوده (پشتیبان حضوری)</h4>
+                        <span class="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md">صرفاً دارای دسته فعالیت مشابه</span>
+                    </div>
+                    <p class="text-[11px] text-slate-500">این فروشگاه‌ها در همین صنف فعالیت دارند اما این مدل خاص را در لیست آفرهای ترب ثبت نکرده‌اند. در صورت مراجعه به پاساژ می‌توانید به عنوان گزینه کمکی به آن‌ها سر بزنید:</p>
+                    <div id="category-alternatives-list" class="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Left Column: Interactive Radar Map & Live Seller Negotiation Sandbox (5 Cols) -->
+        <div class="lg:col-span-5 space-y-4">
+            
+            <!-- Sticky Map & Live Console -->
+            <div class="sticky top-20 space-y-4">
+                
+                <!-- Map Container -->
+                <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-slate-700">🗺️ رادار جغرافیایی پاساژها و فروشگاه‌های تهران</span>
+                        <span id="map-status-badge" class="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-medium">مختصات واقعی دیتاست</span>
+                    </div>
+                    <div class="h-72 w-full rounded-xl overflow-hidden border border-slate-200">
+                        <div id="map"></div>
+                    </div>
+                    <!-- Legend -->
+                    <div class="flex flex-wrap items-center justify-between gap-2 mt-2.5 pt-2 border-t border-slate-100 text-[11px] text-slate-600">
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> موجودی تاییدشده (Live)</span>
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> قیمت سیستمی (نیازمند استعلام)</span>
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span> ناموجود / بسته</span>
+                    </div>
+                </div>
+
+                <!-- Live Seller Negotiation Simulator (Judge Winner Panel) -->
+                <div class="bg-white rounded-2xl border-2 border-slate-800 shadow-lg overflow-hidden">
+                    <div class="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="text-base">💬</span>
+                            <div>
+                                <h3 class="text-xs font-extrabold">کنسول ارتباط زنده ایجنت با فروشنده (واتساپ/بله)</h3>
+                                <p class="text-[10px] text-slate-400">شبیه‌ساز تعاملی ویژه داوران برای تست سناریوهای عدم موجودی و تغییر قیمت</p>
+                            </div>
+                        </div>
+                        <span class="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full">Agent Active</span>
+                    </div>
+
+                    <div id="chat-console-body" class="p-4 space-y-3 max-h-96 overflow-y-auto bg-slate-50 text-xs">
+                        <div class="text-center text-slate-400 py-6">
+                            روی دکمه <b>«🤖 استعلام زنده از فروشنده»</b> در کارت هر فروشگاه کلیک کنید تا مکالمه خودکار ایجنت با مغازه‌دار و جایگزین‌یابی هوشمند را اینجا ببینید.
+                        </div>
+                    </div>
+
+                    <!-- Judge Scenario Controls (Shown when an offer is selected for inquiry) -->
+                    <div id="judge-controls" class="hidden bg-slate-100 p-3 border-t border-slate-200 space-y-2">
+                        <div class="text-[11px] font-bold text-slate-700">🎛️ شما در نقش فروشنده چگونه به ایجنت پاسخ می‌دهید؟</div>
+                        <div class="grid grid-cols-3 gap-1.5">
+                            <button onclick="triggerSellerScenario('confirmed')" class="bg-emerald-600 hover:bg-emerald-700 text-white py-1.5 px-2 rounded-lg text-[11px] font-bold transition">
+                                ✅ موجوده و قیمت تاییده
+                            </button>
+                            <button onclick="triggerSellerScenario('out_of_stock')" class="bg-red-600 hover:bg-red-700 text-white py-1.5 px-2 rounded-lg text-[11px] font-bold transition">
+                                ❌ تموم کردیم! (تست جایگزین‌یاب)
+                            </button>
+                            <button onclick="triggerSellerScenario('price_up')" class="bg-amber-500 hover:bg-amber-600 text-white py-1.5 px-2 rounded-lg text-[11px] font-bold transition">
+                                📈 موجوده ولی گرون‌تر شده
+                            </button>
+                        </div>
+                        <div class="flex gap-1.5 pt-1">
+                            <input id="custom-seller-reply" type="text" placeholder="یا پاسخ دلخواه فروشنده را تایپ کنید (مثلاً: موجوده ۷۵۰۰۰۰ تومن)..." 
+                                class="flex-1 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-slate-800">
+                            <button onclick="triggerSellerScenario('custom')" class="bg-slate-800 hover:bg-slate-950 text-white px-3 py-1.5 rounded-lg text-xs font-bold">
+                                ارسال
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- In-Store Reservation Pass Modal (QR Code) -->
+    <div id="pass-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 relative">
+            <button onclick="closePassModal()" class="absolute left-4 top-4 text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+            <div class="text-center space-y-1">
+                <span class="bg-emerald-100 text-emerald-800 text-xs font-extrabold px-3 py-1 rounded-full">✅ هماهنگ‌شده توسط دستیار ترب‌گرد</span>
+                <h3 class="text-lg font-black text-slate-900 pt-1">کارت مراجعه و خرید حضوری</h3>
+                <p class="text-xs text-slate-500">در زمان ورود به فروشگاه، این کارت را به فروشنده نشان دهید</p>
+            </div>
+            <div id="pass-modal-content" class="bg-slate-50 p-4 rounded-2xl border border-dashed border-slate-300 space-y-2.5 text-xs">
+                <!-- Filled dynamically -->
+            </div>
+            <div class="flex justify-center py-2">
+                <img id="pass-qr-img" src="" alt="QR Code" class="w-36 h-36 rounded-xl border border-slate-200 p-2 bg-white shadow-xs">
+            </div>
+            <button onclick="closePassModal()" class="w-full torob-red text-white font-bold py-3 rounded-xl text-sm shadow-md">
+                متوجه شدم / شروع مسیریابی
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let map, userMarker;
+        let shopMarkers = [];
+        let currentProductId = null;
+        let activeOfferIdForInquiry = null;
+        let currentUserLat = 35.6951;
+        let currentUserLon = 51.4085;
+
+        // راه‌اندازی اولیه نقشه تهران
+        function initMap() {
+            map = L.map('map').setView([currentUserLat, currentUserLon], 14);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap & TorobGard'
+            }).addTo(map);
+
+            updateUserMarker();
+        }
+
+        function updateUserMarker() {
+            if (userMarker) map.removeLayer(userMarker);
+            const userIcon = L.divIcon({
+                className: 'custom-user-icon',
+                html: `<div style="background:#1e293b;color:white;padding:4px 8px;border-radius:99px;font-weight:bold;font-size:11px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);white-space:nowrap;">📍 موقعیت شما</div>`,
+                iconSize: [90, 28]
+            });
+            userMarker = L.marker([currentUserLat, currentUserLon], { icon: userIcon }).addTo(map);
+        }
+
+        // بارگذاری متادیتای دیتاست
+        async function loadMetadata() {
+            const res = await fetch('/api/metadata');
+            const data = await res.json();
+            document.getElementById('dataset-stats').innerText = 
+                `متصل به دیتاست ترب: ${data.total_shops.toLocaleString('fa-IR')} فروشگاه تهران | ${data.real_shops_count.toLocaleString('fa-IR')} فروشگاه دارای سایت/اینستاگرام | ${data.installment_shops_count.toLocaleString('fa-IR')} پذیرنده قسطی/ترب‌پی`;
+            
+            const sel = document.getElementById('location-select');
+            sel.innerHTML = '';
+            data.locations.forEach(loc => {
+                const opt = document.createElement('option');
+                opt.value = loc.label;
+                opt.dataset.lat = loc.lat;
+                opt.dataset.lon = loc.lon;
+                opt.innerText = loc.label;
+                sel.appendChild(opt);
+            });
+        }
+
+        function updateBudgetLabel(val) {
+            const num = parseInt(val);
+            const lbl = document.getElementById('budget-label');
+            if (num >= 200000000) {
+                lbl.innerText = 'بدون محدودیت';
+            } else {
+                lbl.innerText = num.toLocaleString('fa-IR') + ' تومان';
+            }
+        }
+
+        function onFilterChange() {
+            const sel = document.getElementById('location-select');
+            const opt = sel.options[sel.selectedIndex];
+            if (opt && opt.dataset.lat) {
+                currentUserLat = parseFloat(opt.dataset.lat);
+                currentUserLon = parseFloat(opt.dataset.lon);
+                updateUserMarker();
+                map.setView([currentUserLat, currentUserLon], 14);
+            }
+            if (currentProductId) {
+                reloadCurrentProductShops();
+            } else {
+                loadProducts();
+            }
+        }
+
+        function quickSearch(queryText) {
+            document.getElementById('search-input').value = queryText;
+            backToProducts();
+            loadProducts();
+        }
+
+        // گام ۱: دریافت لیست محصولات پیشنهادی
+        async function loadProducts() {
+            const q = document.getElementById('search-input').value;
+            const budgetVal = parseInt(document.getElementById('budget-slider').value);
+            const maxBudget = budgetVal >= 200000000 ? '' : budgetVal;
+            const onlyInst = document.getElementById('installment-checkbox').checked;
+            const locLabel = document.getElementById('location-select').value;
+
+            const url = `/api/discover?q=${encodeURIComponent(q)}&only_installment=${onlyInst}&user_lat=${currentUserLat}&user_lon=${currentUserLon}&location_label=${encodeURIComponent(locLabel)}` + (maxBudget ? `&max_budget=${maxBudget}` : '');
+            const res = await fetch(url);
+            const data = await res.json();
+
+            document.getElementById('agent-message').innerText = data.agent_message;
+            document.getElementById('product-count-badge').innerText = `${data.products.length.toLocaleString('fa-IR')} محصول پیشنهادی`;
+
+            const grid = document.getElementById('products-grid');
+            grid.innerHTML = '';
+
+            data.products.forEach(p => {
+                const specsHtml = (p.specs || []).slice(0, 2).map(s => 
+                    `<span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px]">${s.key}: ${s.value}</span>`
+                ).join(' ');
+
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-2xl border border-slate-200 p-3.5 hover:border-red-400 hover:shadow-md transition flex flex-col justify-between cursor-pointer';
+                card.onclick = () => selectProduct(p.product_id);
+                card.innerHTML = `
+                    <div>
+                        <div class="flex items-start gap-3">
+                            <img src="${p.image_url}" onerror="this.src='https://via.placeholder.com/120?text=Torob'" class="w-20 h-20 object-contain rounded-xl border border-slate-100 bg-slate-50 p-1 shrink-0">
+                            <div class="flex-1 min-w-0">
+                                <span class="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-md">${p.category_name}</span>
+                                <h3 class="font-bold text-xs md:text-sm text-slate-900 mt-1 line-clamp-2 leading-snug">${p.persian_title}</h3>
+                                <p class="text-[11px] text-emerald-700 font-medium mt-1">✨ ${p.recommendation_reason}</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-1 mt-2.5">${specsHtml}</div>
+                    </div>
+                    <div class="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                        <div>
+                            <span class="text-[10px] text-slate-400 block">شروع قیمت در فروشگاه‌های تهران:</span>
+                            <span class="font-black text-sm text-slate-900">${p.min_price.toLocaleString('fa-IR')} <span class="text-[11px] font-normal">تومان</span></span>
+                        </div>
+                        <button class="torob-red text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs hover:bg-red-700 transition">
+                            مقایسه ${p.shop_count.toLocaleString('fa-IR')} فروشگاه ←
+                        </button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // گام ۲ و ۳: نمایش فروشگاه‌های یک محصول و مقایسه کامل
+        async function selectProduct(productId) {
+            currentProductId = productId;
+            document.getElementById('products-view').classList.add('hidden');
+            document.getElementById('shops-view').classList.remove('hidden');
+
+            document.getElementById('step-badge-1').className = 'px-3 py-1 rounded-lg text-slate-500';
+            document.getElementById('step-badge-2').className = 'px-3 py-1 rounded-lg bg-white text-red-600 shadow-sm font-bold';
+
+            await reloadCurrentProductShops();
+        }
+
+        async function reloadCurrentProductShops() {
+            if (!currentProductId) return;
+            const visitDay = document.getElementById('visit-day').value;
+            const visitHour = document.getElementById('visit-hour').value;
+            const sortBy = document.getElementById('sort-shops').value;
+            const onlyInst = document.getElementById('installment-checkbox').checked;
+
+            const url = `/api/product/${currentProductId}/shops?user_lat=${currentUserLat}&user_lon=${currentUserLon}&visit_day=${visitDay}&visit_hour=${visitHour}&sort_by=${sortBy}&only_installment=${onlyInst}`;
+            const res = await fetch(url);
+            const data = await res.json();
+
+            const p = data.product;
+            document.getElementById('selected-product-header').innerHTML = `
+                <div class="flex items-center gap-3">
+                    <img src="${p.image_url}" onerror="this.src='https://via.placeholder.com/80?text=Torob'" class="w-16 h-16 object-contain rounded-xl border border-slate-200 p-1">
+                    <div class="flex-1">
+                        <span class="text-[11px] text-slate-500">${p.category_name} • برند: ${p.brand_name}</span>
+                        <h2 class="font-black text-sm md:text-base text-slate-900">${p.persian_title}</h2>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('agent-message').innerText = 
+                `برای «${p.persian_title}»، تعداد ${data.shops.length} فروشگاه حضوری پیدا شد. آدرس دقیق داخل پاساژ (طبقه و واحد)، فاصله از شما، وضعیت ساعت کاری و شرایط پرداخت اقساطی استخراج شده است. برای اطمینان ۱۰۰٪ قبل از حرکت، دکمه «استعلام زنده» را بزنید.`;
+
+            renderShopsList(data.shops, p.persian_title);
+            renderCategoryAlternatives(data.category_alternatives || []);
+            renderMapMarkers(data.shops);
+        }
+
+        function renderShopsList(shops, productTitle) {
+            const container = document.getElementById('shops-list');
+            container.innerHTML = '';
+
+            shops.forEach((s, idx) => {
+                // تعیین بج شفافیت قیمت و موجودی
+                let trustBadge = '';
+                let cardBorder = 'border-slate-200 bg-white';
+                if (s.live_status === 'verified_live') {
+                    trustBadge = `<span class="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full">🟢 موجودی و قیمت تاییدشده (Live)</span>`;
+                    cardBorder = 'border-2 border-emerald-500 bg-emerald-50/20';
+                } else if (s.live_status === 'price_updated') {
+                    trustBadge = `<span class="bg-blue-100 text-blue-800 border border-blue-300 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full">🔄 قیمت جدید اعلام‌شده در چت</span>`;
+                    cardBorder = 'border-2 border-blue-500 bg-blue-50/10';
+                } else if (s.live_status === 'out_of_stock') {
+                    trustBadge = `<span class="bg-red-100 text-red-800 border border-red-300 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full">🔴 ناموجود (اعلام فروشنده در لحظه)</span>`;
+                    cardBorder = 'border-red-200 bg-slate-100 opacity-65';
+                } else {
+                    trustBadge = `<span class="bg-amber-50 text-amber-800 border border-amber-300 text-[11px] font-bold px-2.5 py-0.5 rounded-full">🟡 قیمت ثبت‌شده در سیستم (${s.last_price_changed_at}) - نیازمند استعلام</span>`;
+                }
+
+                // گراف مسیریابی داخل پاساژ (Mall X-Ray)
+                let xrayHtml = '';
+                if (s.xray && (s.xray.mall || s.xray.floor || s.xray.unit)) {
+                    xrayHtml = `
+                        <div class="bg-slate-900 text-white px-3 py-2 rounded-xl text-xs flex flex-wrap items-center gap-1.5 mt-2">
+                            <span class="text-amber-400 font-bold">🧭 راهنمای درون‌پاساژی:</span>
+                            <span class="bg-slate-800 px-2 py-0.5 rounded">📍 ${s.location_label}</span>
+                            ${s.xray.mall ? `<span>⬅️</span><span class="bg-slate-800 text-emerald-300 font-bold px-2 py-0.5 rounded">🏢 ${s.xray.mall}</span>` : ''}
+                            ${s.xray.floor ? `<span>⬅️</span><span class="bg-slate-800 px-2 py-0.5 rounded">⬆️ ${s.xray.floor}</span>` : ''}
+                            ${s.xray.unit ? `<span>⬅️</span><span class="bg-amber-500 text-slate-950 font-black px-2 py-0.5 rounded">🚪 ${s.xray.unit}</span>` : ''}
+                        </div>
+                    `;
+                }
+
+                // بج‌های پرداخت قسطی / ترب‌پی با تفکیک کانال حضوری یا نامشخص
+                let paymentBadges = '';
+                if (s.payment_info && s.payment_info.has_installment) {
+                    paymentBadges = s.payment_info.providers.map(pr => {
+                        const chNote = pr.channel === 'in_person' ? 'حضوری تاییدشده' : 'نیازمند استعلام حضوری';
+                        return `<span class="bg-purple-50 text-purple-800 border border-purple-200 text-[10px] font-bold px-2 py-0.5 rounded-md">💳 ${pr.name} (${chNote})</span>`;
+                    }).join(' ');
+                }
+
+                // بج ۱۱۲ فروشگاه دارای وب‌سایت یا اینستاگرام واقعی
+                let realShopBadge = '';
+                if (s.website_url) {
+                    realShopBadge += `<a href="${s.website_url}" target="_blank" class="bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-bold px-2 py-0.5 rounded-md hover:underline">🌐 وب‌سایت رسمی فروشگاه</a>`;
+                }
+                if (s.instagram) {
+                    realShopBadge += `<span class="bg-pink-50 text-pink-700 border border-pink-200 text-[10px] font-bold px-2 py-0.5 rounded-md">📸 اینستاگرام: ${s.instagram}</span>`;
+                }
+
+                const card = document.createElement('div');
+                card.className = `rounded-2xl p-4 transition shadow-xs ${cardBorder}`;
+                card.innerHTML = `
+                    <div class="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="bg-slate-800 text-white text-xs font-black w-6 h-6 rounded-lg flex items-center justify-center">${(idx + 1).toLocaleString('fa-IR')}</span>
+                                <h3 class="font-black text-base text-slate-900">${s.shop_name}</h3>
+                                ${trustBadge}
+                            </div>
+                            <p class="text-xs text-slate-600 mt-1">📍 ${s.address}</p>
+                        </div>
+                        <div class="text-left">
+                            <div class="text-lg font-black text-slate-900">${s.price_toman.toLocaleString('fa-IR')} <span class="text-xs font-normal">تومان</span></div>
+                            <div class="text-[11px] text-slate-500">🛡️ ${s.warranty}</div>
+                        </div>
+                    </div>
+
+                    ${xrayHtml}
+
+                    <!-- مقایسه فاصله، ساعت کاری و شرایط -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 pt-2.5 border-t border-slate-100 text-xs">
+                        <div class="bg-slate-50 p-2 rounded-xl">
+                            <span class="text-slate-400 block text-[10px]">🚗 فاصله و زمان رسیدن:</span>
+                            <span class="font-bold text-slate-800">${s.distance_km.toLocaleString('fa-IR')} کیلومتر (~${s.eta_minutes.toLocaleString('fa-IR')} دقیقه)</span>
+                        </div>
+                        <div class="bg-slate-50 p-2 rounded-xl">
+                            <span class="text-slate-400 block text-[10px]">🕒 وضعیت ساعت کاری:</span>
+                            <span class="font-bold ${s.hours_info.is_open_now === false ? 'text-red-600' : 'text-slate-800'}">${s.hours_info.label}</span>
+                        </div>
+                        <div class="bg-slate-50 p-2 rounded-xl col-span-2 sm:col-span-1">
+                            <span class="text-slate-400 block text-[10px]">📞 تلفن ثبت‌شده:</span>
+                            <span class="font-bold text-slate-800">${s.phone}</span>
+                        </div>
+                    </div>
+
+                    ${s.eta_warning ? `<div class="mt-2 bg-amber-50 border border-amber-200 text-amber-800 px-3 py-1.5 rounded-xl text-xs font-bold">${s.eta_warning}</div>` : ''}
+
+                    <div class="flex flex-wrap gap-1.5 mt-2.5">
+                        ${paymentBadges}
+                        ${realShopBadge}
+                        ${s.supports_fast_delivery ? `<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-md">🛵 دارای ارسال فوری</span>` : ''}
+                    </div>
+
+                    ${s.seller_reply ? `
+                        <div class="mt-3 bg-emerald-950 text-emerald-100 p-3 rounded-xl text-xs">
+                            <span class="font-bold text-emerald-400 block mb-0.5">💬 آخرین پاسخ زنده فروشنده به ایجنت:</span>
+                            «${s.seller_reply}»
+                        </div>
+                    ` : ''}
+
+                    <!-- دکمه‌های عملیاتی گام ۴ -->
+                    <div class="mt-3 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                        <button onclick="openLiveInquiry('${s.offer_id}', '${s.shop_name}')" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-1.5 shadow-xs">
+                            🤖 استعلام زنده موجودی و قیمت توسط ایجنت
+                        </button>
+                        <button onclick="showInStorePass('${s.shop_name}', '${productTitle}', ${s.price_toman}, '${s.address}', '${s.phone}')" 
+                            class="torob-red hover:bg-red-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-xs">
+                            🎫 دریافت کارت مراجعه حضوری
+                        </button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function renderCategoryAlternatives(alts) {
+            const box = document.getElementById('category-alternatives-box');
+            const list = document.getElementById('category-alternatives-list');
+            if (!alts || alts.length === 0) {
+                box.classList.add('hidden');
+                return;
+            }
+            box.classList.remove('hidden');
+            list.innerHTML = '';
+            alts.forEach(a => {
+                list.innerHTML += `
+                    <div class="bg-white p-2.5 rounded-xl border border-slate-200 text-xs">
+                        <div class="font-bold text-slate-800">${a.shop_name} (${a.distance_km.toLocaleString('fa-IR')} km)</div>
+                        <div class="text-[11px] text-slate-500 mt-0.5">${a.address}</div>
+                        <div class="text-[10px] text-amber-700 mt-1 font-medium">⚠️ ${a.note}</div>
+                    </div>
+                `;
+            });
+        }
+
+        function renderMapMarkers(shops) {
+            shopMarkers.forEach(m => map.removeLayer(m));
+            shopMarkers = [];
+
+            shops.forEach((s, idx) => {
+                let bg = '#f59e0b'; // amber default
+                if (s.live_status === 'verified_live' || s.live_status === 'price_updated') bg = '#10b981';
+                if (s.live_status === 'out_of_stock') bg = '#ef4444';
+
+                const icon = L.divIcon({
+                    className: 'shop-pin',
+                    html: `<div style="background:${bg};color:white;padding:3px 7px;border-radius:8px;font-weight:900;font-size:11px;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.3);white-space:nowrap;">${idx + 1}. ${(s.price_toman / 1000000).toFixed(1)}M</div>`,
+                    iconSize: [64, 26]
+                });
+
+                const marker = L.marker([s.lat, s.lon], { icon }).addTo(map);
+                marker.bindPopup(`
+                    <div style="font-family:Vazirmatn;direction:rtl;text-align:right;">
+                        <b>${s.shop_name}</b><br>
+                        قیمت: ${s.price_toman.toLocaleString('fa-IR')} تومان<br>
+                        <small>${s.address}</small>
+                    </div>
+                `);
+                shopMarkers.push(marker);
+            });
+        }
+
+        // گام ۴: استعلام زنده از فروشنده و نمایش در کنسول داوران
+        async function openLiveInquiry(offerId, shopName) {
+            activeOfferIdForInquiry = offerId;
+            document.getElementById('step-badge-3').className = 'px-3 py-1 rounded-lg bg-white text-red-600 shadow-sm font-bold';
+            document.getElementById('judge-controls').classList.remove('hidden');
+
+            await triggerSellerScenario('confirmed');
+        }
+
+        async function triggerSellerScenario(scenarioType) {
+            if (!activeOfferIdForInquiry) return;
+            const customReply = document.getElementById('custom-seller-reply').value;
+
+            const res = await fetch('/api/agent/inquire', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    offer_id: activeOfferIdForInquiry,
+                    scenario: scenarioType,
+                    custom_reply: customReply
+                })
+            });
+            const data = await res.json();
+
+            const consoleBody = document.getElementById('chat-console-body');
+            let altHtml = '';
+            if (data.alternative) {
+                altHtml = `
+                    <div class="bg-amber-50 border-2 border-amber-400 text-amber-950 p-3 rounded-xl mt-2 space-y-1">
+                        <div class="font-black text-xs text-red-600">🚨 واکنش خودکار ایجنت (Auto-Fallback):</div>
+                        <p class="text-[11px]">چون «${data.shop_name}» موجودی را تمام کرده است، ایجنت بلافاصله فروشگاه جایگزین را پیدا کرد:</p>
+                        <div class="bg-white p-2 rounded-lg border border-amber-200 font-bold text-xs">
+                            🏪 ${data.alternative.shop_name} (${data.alternative.reason})<br>
+                            💰 قیمت: ${data.alternative.price_toman.toLocaleString('fa-IR')} تومان
+                        </div>
+                    </div>
+                `;
+            }
+
+            consoleBody.innerHTML = `
+                <div class="space-y-2.5">
+                    <div class="bg-slate-800 text-white p-3 rounded-2xl rounded-tr-none">
+                        <span class="text-[10px] text-emerald-400 font-bold block mb-1">🤖 پیام ارسالی ایجنت ترب به «${data.shop_name}»:</span>
+                        <p class="whitespace-pre-line leading-relaxed">${data.agent_outgoing_msg}</p>
+                    </div>
+                    <div class="bg-white border border-slate-300 text-slate-800 p-3 rounded-2xl rounded-tl-none shadow-xs">
+                        <span class="text-[10px] text-blue-600 font-bold block mb-1">👨‍💼 پاسخ فروشنده در پیام‌رسان:</span>
+                        <p class="font-medium leading-relaxed">«${data.seller_reply}»</p>
+                    </div>
+                    <div class="bg-emerald-50 border border-emerald-200 text-emerald-900 p-2.5 rounded-xl text-[11px] font-bold">
+                        ⚙️ نتیجه پردازش ایجنت: وضعیت فروشگاه در لیست و نقشه به «${data.new_status === 'out_of_stock' ? 'ناموجود 🔴' : 'تاییدشده لحظه‌ای 🟢'}» تغییر یافت.
+                    </div>
+                    ${altHtml}
+                </div>
+            `;
+
+            await reloadCurrentProductShops();
+        }
+
+        async function inquireAllTopShops() {
+            const cards = document.querySelectorAll('#shops-list > div');
+            if (cards.length === 0) return;
+            const res = await fetch(`/api/product/${currentProductId}/shops?user_lat=${currentUserLat}&user_lon=${currentUserLon}`);
+            const data = await res.json();
+            const shops = data.shops || [];
+            if (shops.length > 0) {
+                activeOfferIdForInquiry = shops[0].offer_id;
+                document.getElementById('judge-controls').classList.remove('hidden');
+                // شبیه‌سازی سناریوی واقعی: فروشگاه اول تایید می‌کند، فروشگاه دوم اگر باشد بررسی می‌شود
+                await triggerSellerScenario('confirmed');
+            }
+        }
+
+        // نمایش کارت مراجعه حضوری (QR Pass)
+        function showInStorePass(shopName, productTitle, priceToman, address, phone) {
+            document.getElementById('step-badge-4').className = 'px-3 py-1 rounded-lg bg-white text-red-600 shadow-sm font-bold';
+            const modal = document.getElementById('pass-modal');
+            const content = document.getElementById('pass-modal-content');
+            const passCode = 'TRB-' + Math.floor(100000 + Math.random() * 900000);
+
+            content.innerHTML = `
+                <div><span class="text-slate-400">کد رهگیری حضوری:</span> <b class="text-red-600 font-mono">${passCode}</b></div>
+                <div><span class="text-slate-400">فروشگاه مقصد:</span> <b>${shopName}</b></div>
+                <div><span class="text-slate-400">محصول هماهنگ‌شده:</span> <b>${productTitle}</b></div>
+                <div><span class="text-slate-400">قیمت نهایی:</span> <b class="text-emerald-700">${priceToman.toLocaleString('fa-IR')} تومان</b></div>
+                <div><span class="text-slate-400">آدرس دقیق:</span> <span>${address}</span></div>
+                <div><span class="text-slate-400">تلفن هماهنگی:</span> <span>${phone}</span></div>
+            `;
+
+            document.getElementById('pass-qr-img').src = 
+                `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(passCode + '|' + shopName + '|' + priceToman)}`;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closePassModal() {
+            const modal = document.getElementById('pass-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function backToProducts() {
+            currentProductId = null;
+            document.getElementById('shops-view').classList.add('hidden');
+            document.getElementById('products-view').classList.remove('hidden');
+        }
+
+        async function resetDemo() {
+            await fetch('/api/agent/reset', { method: 'POST' });
+            if (currentProductId) {
+                await reloadCurrentProductShops();
+            } else {
+                await loadProducts();
+            }
+        }
+
+        // جستجوی صوتی فارسی با Web Speech API
+        function startVoiceSearch() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert('مرورگر شما از جستجوی صوتی پشتیبانی نمی‌کند. لطفاً از Chrome استفاده کنید.');
+                return;
+            }
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'fa-IR';
+            recognition.start();
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById('search-input').value = transcript;
+                loadProducts();
+            };
+        }
+
+        window.onload = async () => {
+            initMap();
+            await loadMetadata();
+            await loadProducts();
+        };
+    </script>
+</body>
+</html>
